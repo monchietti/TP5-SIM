@@ -2,6 +2,7 @@ import heapq
 import random
 import math
 from os import truncate
+import copy
 
 from Modelos.Evento import Evento
 from Modelos.Paciente import Paciente
@@ -32,6 +33,8 @@ class ManejadorEventos:
         self.eventos = []  # heapq para mantener la cola de eventos ordenada
         self.clinica = clinica
         self.reloj = 0.0
+        self.historial_vector = []
+
 
         self.vector = {
             "reloj":0,
@@ -150,9 +153,7 @@ class ManejadorEventos:
                     self.vector[f"Tiempo_en_cola_paciente_{paciente.id}"] = tiempo_en_cola
                 else:
                     self.vector[f"Tiempo_en_cola_paciente_{paciente.id}"] = None
-            print(self.vector)
-
-
+            self.historial_vector.append(copy.deepcopy(self.vector))
 
     def procesar_evento(self, evento):
         if evento.tipo_evento == "llegada_consulta":
@@ -252,14 +253,12 @@ class ManejadorEventos:
                     rnd_resonancia = truncar(random.random())
                     tipo = "accidente" if rnd_resonancia < 0.2 else "emergencia"
                     if tipo == "accidente":
-                        print("RUNGEN")
                         self.vector[f"RND_resonancia{servidor.id}"] = rnd_resonancia
                         self.vector[f"Resonancia{servidor.id}"] = "SI"
                         rnd_complejidad = truncar(random.random())
                         self.vector[f"RND_Complejidad{servidor.id}"] = rnd_complejidad
                         paciente.complejidad = definir_complejidad(rnd_complejidad)
                         self.vector[f"Complejidad{servidor.id}"] = paciente.complejidad
-                        print(paciente.complejidad)
                         tiempo_resonancia = self.rk_solver.calcular_RK(0, 0, paciente.complejidad, 0.1)
                         self.vector[f"T_resonancia{servidor.id}"] = tiempo_resonancia
                         duracion = duracion + tiempo_resonancia
