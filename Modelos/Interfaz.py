@@ -1,38 +1,44 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from ManejadorEventos import ManejadorEventos
-from Modelos.Clinica import Clinica  # Asegurate de tener esta clase
-import copy
-import tkinter.font as tkFont  # Asegurate de importar esto arriba
+from Modelos.Clinica import Clinica
+import tkinter.font as tkFont
+from servicios.valoresRungeKutta import valoresRK
 
 
 class InterfazSimulacion:
     def __init__(self, root):
         self.root = root
         self.root.title("Simulación - Vector de Estado")
-        self.root.geometry("1400x700")  # Ventana más grande
+        self.root.geometry("1400x750")
 
         # Entrada de parámetros
         frame_input = tk.Frame(root)
         frame_input.pack(pady=5)
 
-        # Cantidad de líneas
-        tk.Label(frame_input, text="Simular N líneas:").pack(side="left")
-        self.entrada_n = tk.Entry(frame_input, width=6)
-        self.entrada_n.pack(side="left", padx=5)
-        self.entrada_n.insert(0, "1000")  # valor por defecto
+        # Parámetros de simulación
+        self.campos = {}
+        parametros = [
+            ("Simular N líneas:", "1000"),
+            ("Mostrar desde la fila:", "0"),
+            ("Tasa atención general:", "0.1"),
+            ("Tasa atención emergencias:", "0.1667"),
+            ("Llegada pacientes generales (min):", "0.3"),
+            ("Llegada pacientes emergencia (min):", "0.2"),
+        ]
 
-        # Fila de inicio
-        tk.Label(frame_input, text="Mostrar desde la fila:").pack(side="left")
-        self.entrada_inicio = tk.Entry(frame_input, width=6)
-        self.entrada_inicio.pack(side="left")
-        self.entrada_inicio.insert(0, "0")
+        for label_text, valor_default in parametros:
+            tk.Label(frame_input, text=label_text).pack(side="left", padx=2)
+            entrada = tk.Entry(frame_input, width=6)
+            entrada.insert(0, valor_default)
+            entrada.pack(side="left", padx=2)
+            self.campos[label_text] = entrada
 
-        # Botón
+        # Botón de simulación
         self.boton = tk.Button(frame_input, text="Iniciar Simulación", command=self.simular)
         self.boton.pack(side="left", padx=10)
 
-        # Frame para tabla y scroll
+        # Frame para tabla
         frame_tabla = tk.Frame(root)
         frame_tabla.pack(expand=True, fill="both")
 
@@ -56,8 +62,7 @@ class InterfazSimulacion:
         frame_tabla.grid_rowconfigure(0, weight=1)
         frame_tabla.grid_columnconfigure(0, weight=1)
 
-        # Última fila del vector
-        # Frame para mostrar la última fila
+        # Última fila
         frame_ultima = tk.Frame(root)
         frame_ultima.pack(fill="both", padx=10, pady=5)
 
@@ -75,26 +80,27 @@ class InterfazSimulacion:
         self.tabla_ultima.pack(side="top", fill="x")
         self.scroll_x_ultima.pack(side="bottom", fill="x")
 
+        self.tabla.bind("<ButtonRelease-1>", self.celda_clickeada)
+
     def simular(self):
         try:
-            cantidad_lineas = int(self.entrada_n.get())
-            if cantidad_lineas <= 0:
+            cantidad_lineas = int(self.campos["Simular N líneas:"].get())
+            inicio = int(self.campos["Mostrar desde la fila:"].get())
+            tasa_gen = float(self.campos["Tasa atención general:"].get())
+            tasa_emer = float(self.campos["Tasa atención emergencias:"].get())
+            llegada_gen = float(self.campos["Llegada pacientes generales (min):"].get())
+            llegada_emer = float(self.campos["Llegada pacientes emergencia (min):"].get())
+
+            if cantidad_lineas <= 0 or inicio < 0 or tasa_gen <= 0 or tasa_emer <= 0 or llegada_gen <= 0 or llegada_emer <= 0:
                 raise ValueError
+
         except ValueError:
-            messagebox.showerror("Error", "Ingrese un número válido de líneas (> 0)")
+            messagebox.showerror("Error", "Verifica que todos los campos sean numéricos y mayores que cero.")
             return
 
-        try:
-            inicio = int(self.entrada_inicio.get())
-            if inicio < 0:
-                raise ValueError
-        except ValueError:
-            messagebox.showerror("Error", "Ingrese un número válido para el inicio.")
-            return
-
-        clinica = Clinica()
+        clinica = Clinica(tasa_gen, tasa_emer)
         manejador = ManejadorEventos(clinica)
-        manejador.iniciar_simulacion(cantidad_lineas)
+        manejador.iniciar_simulacion(cantidad_lineas, llegada_gen, llegada_emer)
 
         vectores = manejador.historial_vector
         if not vectores:
@@ -106,25 +112,30 @@ class InterfazSimulacion:
         ultima_fila = vectores[-1]
 
         self.tabla.delete(*self.tabla.get_children())
-        # no mostrar cada paciente (esto se tiene que cambiar)
-        columnas = list(vista[0].keys())[0:50]
+        columnas = list(vista[-1].keys())[0:54 + 10*4]
         self.tabla["columns"] = columnas
 
-        # Calcular el ancho dinámico según el texto del encabezado
         fuente = tkFont.Font()
         for col in columnas:
-            ancho_texto = fuente.measure(col) + 20  # ancho del texto + padding
+            ancho_texto = fuente.measure(col) + 20
             self.tabla.heading(col, text=col)
             self.tabla.column(col, width=ancho_texto, anchor="center", minwidth=100)
 
-        n = 0
-        for fila in vista:
-            valores = [fila[col] for col in columnas]
-            n += 1
-            self.tabla.insert("", "end", values=valores)
 
-        resumen = "\n".join([f"{clave}: {valor}" for clave, valor in ultima_fila.items()])
-        # Mostrar última fila del vector de estado de forma horizontal
+        for fila in vista:
+                valores = []
+                for col in columnas:
+                    try:
+                        if fila[col] is None:
+                            valores.append("---")
+                        else:
+                            valores.append(fila[col])
+                    except Exception as e:
+                        valores.append("---")
+                self.tabla.insert("", "end", values=valores)
+
+
+
         self.tabla_ultima.delete(*self.tabla_ultima.get_children())
         self.tabla_ultima["columns"] = columnas
 
@@ -136,9 +147,92 @@ class InterfazSimulacion:
         valores = [ultima_fila[col] for col in columnas]
         self.tabla_ultima.insert("", "end", values=valores)
 
+    def celda_clickeada(self, event):
+        region = self.tabla.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+
+        col_id = self.tabla.identify_column(event.x)
+        col_index = int(col_id[1:]) - 1  # columnas empiezan en "#1"
+
+        # Obtener el nombre de la columna clickeada
+        col_name = self.tabla["columns"][col_index]
+        if not col_name.startswith("T_resonancia"):
+            return
+
+        item_id = self.tabla.identify_row(event.y)
+        if not item_id:
+            return
+
+        valores = self.tabla.item(item_id)["values"]
+
+        # Suponiendo que "complejidad" está en una columna conocida
+        # Podés ajustarlo si tenés el nombre de la columna
+        try:
+            numero_medico = col_name[-1]
+            idx_complejidad = self.tabla["columns"].index(f"Complejidad{numero_medico}")
+            complejidad = int(valores[idx_complejidad])
+        except:
+            messagebox.showerror("Error", "No se pudo determinar la complejidad.")
+            return
+
+        self.mostrar_matriz_runge_kutta(complejidad)
+
+    def mostrar_matriz_runge_kutta(self, complejidad):
+        matriz = valoresRK(complejidad)
+
+        if not matriz:
+            messagebox.showerror("Error", f"No hay matriz definida para complejidad {complejidad}.")
+            return
+
+        ventana = tk.Toplevel(self.root)
+        ventana.title(f"Matriz Runge-Kutta - Complejidad {complejidad}")
+        ventana.geometry("600x300")
+
+        # Frame principal
+        frame = tk.Frame(ventana)
+        frame.pack(expand=True, fill="both")
+
+        # Scrollbars
+        scroll_y = ttk.Scrollbar(frame, orient="vertical")
+        scroll_x = ttk.Scrollbar(frame, orient="horizontal")
+
+        # Treeview como tabla
+        tree = ttk.Treeview(frame, show="headings", yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+
+        scroll_y.config(command=tree.yview)
+        scroll_x.config(command=tree.xview)
+
+        scroll_y.pack(side="right", fill="y")
+        scroll_x.pack(side="bottom", fill="x")
+        tree.pack(expand=True, fill="both")
+
+        # Definir columnas según la cantidad de elementos
+        columnas = ["t", "R", "K1", "t+h/2", "K2", "t+h * 1/2", "K3", "t+h", "K4", "Ri+1"]
+        tree["columns"] = columnas
+
+        for col in columnas:
+            tree.heading(col, text=col)
+            tree.column(col, width=100, anchor="center", minwidth=60)
+
+        # Cargar filas
+        for i, fila in enumerate(matriz):
+            valores = [str(x) for x in fila]
+            item_id = tree.insert("", "end", values=valores)
+
+            # Pintar última fila, primera columna
+            if i == len(matriz) - 1:
+                # Usar tag para estilizar
+                tree.tag_configure("verde", background="#c8f7c5")  # verde suave
+                tree.item(item_id, tags=("verde",))
+
+        # Aplicar estilo más visible si lo deseas
+        style = ttk.Style()
+        style.configure("Treeview.Heading", font=("Arial", 10, "bold"))
+        style.configure("Treeview", font=("Arial", 10))
+
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = InterfazSimulacion(root)
     root.mainloop()
-

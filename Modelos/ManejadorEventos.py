@@ -11,8 +11,9 @@ from servicios.RungeKuttaSolver import RungeKuttaSolver
 random.seed(24)
 
 def truncar(numero):
-    factor = 10 ** 2
-    return int(numero * factor) / factor
+    parte_entera = int(numero)
+    parte_decimal = int((abs(numero) * 100) % 100)
+    return parte_entera + (parte_decimal / 100) if numero >= 0 else parte_entera - (parte_decimal / 100)
 
 def definir_complejidad(rnd_complejidad):
     if rnd_complejidad < 0.15:
@@ -45,12 +46,27 @@ class ManejadorEventos:
             "RND_LLE": None,
             "T_LLE": None,
             "H_LLE": None,
+            #COLAS
+            "CG": 0,
+            "CE": 0,
+            #MEDICO GENERAL 1
             "RND_FAG1": None, #fin atencion general 1
             "T_FAG1": None,
             "H_FAG1": None,
+            "E_MG1": "Libre",
+            "IOMG1": None,  # Inicio ocupacion medico general/emergencias N (creo)
+            "AcuMG1": 0,  # Acumulador tiempo ocupacion Medico general/emergencias N
+            "PorcOMG1": 0,
+            #MEDICO GENERAL 2
             "RND_FAG2": None,
             "T_FAG2": None,
             "H_FAG2": None,
+            "E_MG2": "Libre",
+            "IOMG2": None,
+            "AcuMG2": 0,
+            "PorcOMG2": 0,
+
+            #MEDICO EMERGENCIA 1
             "RND_resonancia1": None, #si hay resonancia para el medico 1
             "Resonancia1": None,
             "RND_Complejidad1": None,
@@ -59,6 +75,11 @@ class ManejadorEventos:
             "RND_FAE1": None,  # fin atencion Emergencia 1
             "T_FAE1": None,
             "H_FAE1": None,
+            "E_ME1": "Libre",
+            "IOME1": None,
+            "AcuME1": 0,
+            "PorcOME1": 0,
+            #MEDICO EMERGENCIA 2
             "RND_resonancia2": None,  # si hay resonancia para el medico 1
             "Resonancia2": None,
             "RND_Complejidad2": None,
@@ -67,24 +88,11 @@ class ManejadorEventos:
             "RND_FAE2": None,
             "T_FAE2": None,
             "H_FAE2": None,
-            "E_MG1": "Libre",
-            "E_MG2": "Libre",
-            "E_ME1": "Libre",
             "E_ME2": "Libre",
-            "CG": 0,
-            "CE": 0,
-            "IOMG1": None, #Inicio ocupacion medico general/emergencias N (creo)
-            "AcuMG1": 0, #Acumulador tiempo ocupacion Medico general/emergencias N
-            "PorcOMG1": 0,
-            "IOMG2": None,
-            "AcuMG2": 0,
-            "PorcOMG2": 0,
-            "IOME1": None,
-            "AcuME1": 0,
-            "PorcOME1": 0,
             "IOME2": None,
             "AcuME2": 0,
             "PorcOME2": 0,
+            #CONSIGNAS
             "cant_pacientes_G": 0,
             "Acu_T_Espera_G" : 0,
             "Prom_T_Espera_G": 0,
@@ -102,20 +110,23 @@ class ManejadorEventos:
         return None
 
     def generar_tiempo_exponencial(self, rnd, tasa):
-        return truncar(-1/tasa * math.log(1- rnd))
+        print(math.log(1-rnd))
+        print(tasa)
+        return truncar((-1/tasa) * math.log(1- rnd))
 
-    def iniciar_simulacion(self, cantidad_lineas):
+    def iniciar_simulacion(self, cantidad_lineas, llegada_gral, llegada_emergencia):
+        Paciente._cont_pacientes = 0
         # Agendar primeras llegadas
         self.vector["reloj"] = 0
         self.vector["evento"] = "inicio simulacion"
-
+        self.historial_vector = []
         rnd1 = truncar(random.random())
         rnd2 = truncar(random.random())
 
         self.vector["RND_LLG"] = rnd1
         self.vector["RND_LLE"] = rnd2
-        tiempo_llG = self.generar_tiempo_exponencial(rnd1, 18/60)
-        tiempo_llE = self.generar_tiempo_exponencial(rnd2, 12/60)
+        tiempo_llG = self.generar_tiempo_exponencial(rnd1, llegada_gral)
+        tiempo_llE = self.generar_tiempo_exponencial(rnd2, llegada_emergencia)
         self.vector["T_LLG"] = tiempo_llG
         self.vector["T_LLE"] = tiempo_llE
         self.vector["H_LLG"] = tiempo_llG
@@ -123,12 +134,13 @@ class ManejadorEventos:
         self.agendar_evento(Evento(self.reloj + tiempo_llG, "llegada_consulta"))
         self.agendar_evento(Evento(self.reloj + tiempo_llE, "llegada_emergencia"))
         lineas = 1
+        self.historial_vector.append(copy.deepcopy(self.vector))
         while self.eventos and lineas < cantidad_lineas:
             lineas += 1
             evento = self.proximo_evento()
             self.reloj = truncar(evento.tiempo)
             self.vector["reloj"] = self.reloj
-            self.procesar_evento(evento)
+            self.procesar_evento(evento,llegada_gral, llegada_emergencia)
             self.vector["CG"] = len(self.clinica.consulta_cola.cola)
             self.vector["CE"] = len(self.clinica.emergencia_cola.cola)
             #para cada servidor mostrar la ocupacion
@@ -153,9 +165,10 @@ class ManejadorEventos:
                     self.vector[f"Tiempo_en_cola_paciente_{paciente.id}"] = tiempo_en_cola
                 else:
                     self.vector[f"Tiempo_en_cola_paciente_{paciente.id}"] = None
+            #print(self.vector)
             self.historial_vector.append(copy.deepcopy(self.vector))
 
-    def procesar_evento(self, evento):
+    def procesar_evento(self, evento, llegada_gral, llegada_emergencia):
         if evento.tipo_evento == "llegada_consulta":
             paciente = Paciente("consulta", self.reloj)
             self.vector["evento"] = f"llegada consulta paciente {paciente.id}"
@@ -164,7 +177,7 @@ class ManejadorEventos:
             paciente.estado = "en cola consulta"
             rnd1 = truncar(random.random())
             self.vector["RND_LLG"] = rnd1
-            tiempo_llG = self.generar_tiempo_exponencial(rnd1, 18/60)
+            tiempo_llG = self.generar_tiempo_exponencial(rnd1, llegada_gral)
             self.vector["T_LLG"] = tiempo_llG
             self.vector["H_LLG"] = self.reloj + tiempo_llG
             self.agendar_evento(Evento(self.reloj + tiempo_llG, "llegada_consulta"))
@@ -179,7 +192,7 @@ class ManejadorEventos:
             self.clinica.emergencia_cola.agregar(paciente)
             rnd1 = truncar(random.random())
             self.vector["RND_LLE"] = rnd1
-            tiempo_llE = self.generar_tiempo_exponencial(rnd1, 12/60)
+            tiempo_llE = self.generar_tiempo_exponencial(rnd1, llegada_emergencia)
             self.vector["T_LLE"] = tiempo_llE
             self.vector["H_LLE"] = self.reloj + tiempo_llE
             self.agendar_evento(Evento(self.reloj + tiempo_llE, "llegada_emergencia"))
@@ -246,23 +259,23 @@ class ManejadorEventos:
                     # promedio de tiempo de espera en cola de pacientes de emergencia atendidos
                     if self.vector[f"cant_pacientes_E"] != 0:
                         self.vector["Prom_T_Espera_E"] = self.vector[f"Acu_T_Espera_E"] / self.vector[f"cant_pacientes_E"]
-
-
-
                     #se calcula si hubo o no accidentes para las emergencias
                     rnd_resonancia = truncar(random.random())
+                    self.vector[f"RND_resonancia{servidor.id}"] = rnd_resonancia
                     tipo = "accidente" if rnd_resonancia < 0.2 else "emergencia"
                     if tipo == "accidente":
-                        self.vector[f"RND_resonancia{servidor.id}"] = rnd_resonancia
+                        #print("RUNGEN")
                         self.vector[f"Resonancia{servidor.id}"] = "SI"
                         rnd_complejidad = truncar(random.random())
                         self.vector[f"RND_Complejidad{servidor.id}"] = rnd_complejidad
                         paciente.complejidad = definir_complejidad(rnd_complejidad)
                         self.vector[f"Complejidad{servidor.id}"] = paciente.complejidad
+                        #print(paciente.complejidad)
                         tiempo_resonancia = self.rk_solver.calcular_RK(0, 0, paciente.complejidad, 0.1)
                         self.vector[f"T_resonancia{servidor.id}"] = tiempo_resonancia
                         duracion = duracion + tiempo_resonancia
-
+                    else:
+                        self.vector[f"Resonancia{servidor.id}"] = "NO"
                 servidor.tiempo_fin_atencion = self.reloj + duracion
                 self.agendar_evento(Evento(servidor.tiempo_fin_atencion, "fin_atencion", paciente))
                 cola.siguiente()  # saca el primer elemento de la cola (el paciente atendido)
