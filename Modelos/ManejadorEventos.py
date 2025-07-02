@@ -110,8 +110,6 @@ class ManejadorEventos:
         return None
 
     def generar_tiempo_exponencial(self, rnd, tasa):
-        print(math.log(1-rnd))
-        print(tasa)
         return truncar((-1/tasa) * math.log(1- rnd))
 
     def iniciar_simulacion(self, cantidad_lineas, llegada_gral, llegada_emergencia):
@@ -167,6 +165,51 @@ class ManejadorEventos:
                     self.vector[f"Tiempo_en_cola_paciente_{paciente.id}"] = None
             #print(self.vector)
             self.historial_vector.append(copy.deepcopy(self.vector))
+
+        #FIN DE LA SIMULACION
+        self.vector["evento"] = "Fin simulacion"
+        for servidor in self.clinica.servidores_consulta:
+            self.vector[f"IOMG{servidor.id}"] = servidor.inicio_ocupacion
+            print(f"{servidor.id} {servidor.tipo}: {servidor.inicio_ocupacion}")
+            if servidor.inicio_ocupacion is None:
+                self.vector[f"AcuMG{servidor.id}"] = servidor.acumulador_ocupacion
+            else:
+                self.vector[f"AcuMG{servidor.id}"] = servidor.acumulador_ocupacion + (self.reloj - servidor.inicio_ocupacion)
+
+            self.vector[f"PorcOMG{servidor.id}"] = self.vector[f"AcuMG{servidor.id}"] / self.reloj * 100
+
+        for servidor in self.clinica.servidores_emergencia:
+            self.vector[f"IOME{servidor.id}"] = servidor.inicio_ocupacion
+            if servidor.inicio_ocupacion is None:
+                self.vector[f"AcuME{servidor.id}"] = servidor.acumulador_ocupacion
+            else:
+                self.vector[f"AcuME{servidor.id}"] = servidor.acumulador_ocupacion + (self.reloj - servidor.inicio_ocupacion)
+            #self.vector[f"PorcOME{servidor.id}"] = self.vector[f"AcuME{servidor.id}"] / self.reloj * 100
+            self.vector[f"PorcOME{servidor.id}"] = self.vector[f"AcuME{servidor.id}"] / self.reloj * 100
+
+
+        for paciente in self.clinica.pacientes:
+
+            self.vector[f"id_paciente_{paciente.id}"] = paciente.id
+            self.vector[f"estado_paciente_{paciente.id}"] = paciente.estado
+            self.vector[f"Hora_llegada_paciente_{paciente.id}"] = paciente.tiempo_llegada
+            if paciente.tiempo_salida_cola:
+                tiempo_en_cola = paciente.tiempo_salida_cola - paciente.tiempo_llegada
+                self.vector[f"Tiempo_en_cola_paciente_{paciente.id}"] = tiempo_en_cola
+            else:
+                if paciente.tipo == "emergencia":
+                    self.vector[f"cant_pacientes_E"] += 1
+                    self.vector[f"Acu_T_Espera_E"] += self.reloj - paciente.tiempo_llegada
+                    self.vector["Prom_T_Espera_E"] = self.vector[f"Acu_T_Espera_E"] / self.vector[f"cant_pacientes_E"]
+                if paciente.tipo == "consulta":
+                    self.vector[f"cant_pacientes_G"] += 1
+                    self.vector[f"Acu_T_Espera_G"] += self.reloj - paciente.tiempo_llegada
+                    self.vector["Prom_T_Espera_G"] = self.vector[f"Acu_T_Espera_G"] / self.vector[f"cant_pacientes_G"]
+
+
+
+        self.historial_vector.append(copy.deepcopy(self.vector))
+
 
     def procesar_evento(self, evento, llegada_gral, llegada_emergencia):
         if evento.tipo_evento == "llegada_consulta":
@@ -237,6 +280,7 @@ class ManejadorEventos:
                 servidor.inicio_ocupacion = None
 
 
+
     def asignar_servidor(self, paciente, tipo):
         servidores = self.clinica.servidores_consulta if tipo == "consulta" else self.clinica.servidores_emergencia
         cola = self.clinica.consulta_cola if tipo == "consulta" else self.clinica.emergencia_cola
@@ -244,7 +288,8 @@ class ManejadorEventos:
         for servidor in servidores:
             #se asigna un servidor libre a un cliente
             if not servidor.ocupado:
-                servidor.inicio_ocupacion = self.reloj
+                if servidor.inicio_ocupacion is None:
+                    servidor.inicio_ocupacion = self.reloj
                 servidor.ocupado = True
                 servidor.paciente_actual = paciente
                 paciente.servidor = servidor

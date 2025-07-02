@@ -144,7 +144,17 @@ class InterfazSimulacion:
             self.tabla_ultima.heading(col, text=col)
             self.tabla_ultima.column(col, width=ancho_texto, anchor="center", minwidth=100)
 
-        valores = [ultima_fila[col] for col in columnas]
+
+        valores = []
+        for col in columnas:
+            try:
+                if ultima_fila[col] is None:
+                    valores.append("---")
+                else:
+                    valores.append(ultima_fila[col])
+            except Exception as e:
+                valores.append("---")
+        self.tabla.insert("", "end", values=valores)
         self.tabla_ultima.insert("", "end", values=valores)
 
     def celda_clickeada(self, event):
